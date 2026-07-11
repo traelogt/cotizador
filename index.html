@@ -345,6 +345,7 @@ const STORAGE_KEY = 'cotizador_shein_products_v1';
 const SETTINGS_KEY = 'cotizador_shein_settings_v1';
 
 let products = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+let editingId = null;
 
 function loadSettings(){
   const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
@@ -548,6 +549,7 @@ function effRateFor(currency){
   return currency === 'USD' ? (s.rateUSD + s.markup) : (s.rateMXN + s.markup);
 }
 
+
 function addProduct(){
   const name = document.getElementById('pName').value.trim();
   const link = document.getElementById('pLink').value.trim();
@@ -558,21 +560,53 @@ function addProduct(){
   if(!name){ alert('Poné el nombre del producto.'); return; }
   if(!price || price <= 0){ alert('Poné un precio válido.'); return; }
 
-  products.push({
-    id: Date.now(),
-    name, link, price, currency, qty,
-    store: link ? detectStore(link) : ''
-  });
+  if(editingId){
+    const index = products.findIndex(p => p.id === editingId);
+
+    if(index !== -1){
+      products[index] = {
+        ...products[index],
+        name, link, price, currency, qty,
+        store: link ? detectStore(link) : ''
+      };
+    }
+
+    editingId = null;
+    document.querySelector('.btn-primary').textContent = 'Agregar a la cotización';
+
+  } else {
+    products.push({
+      id: Date.now(),
+      name, link, price, currency, qty,
+      store: link ? detectStore(link) : ''
+    });
+  }
+
   persist();
   render();
 
-  // limpiar formulario
   document.getElementById('pName').value = '';
   document.getElementById('pLink').value = '';
   document.getElementById('pPrice').value = '';
   document.getElementById('pQty').value = 1;
   document.getElementById('pasteBox').value = '';
   document.getElementById('parseResult').style.display = 'none';
+}
+function editProduct(id){
+  const p = products.find(x => x.id === id);
+  if(!p) return;
+
+  document.getElementById('pName').value = p.name;
+  document.getElementById('pLink').value = p.link || '';
+  document.getElementById('pPrice').value = p.price;
+  document.getElementById('pCurrency').value = p.currency;
+  document.getElementById('pQty').value = p.qty;
+
+  editingId = id;
+
+  document.querySelector('.btn-primary').textContent = 'Guardar cambios';
+
+  window.scrollTo({top:0, behavior:'smooth'});
 }
 
 function removeProduct(id){
@@ -637,7 +671,10 @@ function render(){
       <td class="num">${fmtQ(unitGTQ)}</td>
       <td class="num">${fmtQ(shipCost)}</td>
       <td class="num"><b>${fmtQ(subtotal)}</b></td>
-      <td><button class="btn-danger" onclick="removeProduct(${p.id})">✕</button></td>
+      <td>
+  <button class="btn-ghost" onclick="editProduct(${p.id})">✏️</button>
+  <button class="btn-danger" onclick="removeProduct(${p.id})">✕</button>
+</td>
     `;
     tbody.appendChild(tr);
   });
