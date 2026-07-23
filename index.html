@@ -691,30 +691,40 @@ function escapeHtml(str){
 }
 
 function buildWhatsAppMessage(){
-  let totalProducts = 0;
+  const s = getSettings();
 
+  let totalGeneral = 0;
   let msg = '🧾 *Cotización de productos*\n\n';
 
   products.forEach((p, idx)=>{
     const rate = effRateFor(p.currency);
     const unitGTQ = p.price * rate;
-    const subtotal = unitGTQ * p.qty;
 
-    totalProducts += subtotal;
+    // Tax igual que en la tabla
+    const shipCost = s.shipPerUnit ? s.shipping * p.qty : s.shipping;
+
+    // Subtotal igual que el mostrado en la cotización
+    const subtotal = (unitGTQ * p.qty) + shipCost;
+
+    totalGeneral += subtotal;
 
     msg += `*${idx + 1}. ${p.name}*${p.store ? ` (${p.store})` : ''}\n`;
-    if(p.link) msg += `🔗 ${p.link}\n`;
-    if(p.qty > 1){
-      msg += `Precio: ${fmtQ(unitGTQ)} c/u\n`;
-      msg += `Cantidad: ${p.qty}\n`;
-      msg += `Subtotal: *${fmtQ(subtotal)}*\n\n`;
-    } else {
-      msg += `Precio: *${fmtQ(unitGTQ)}*\n\n`;
+
+    if(p.link){
+      msg += `🔗 ${p.link}\n`;
     }
+
+    if (p.qty > 1) {
+    msg += `Precio: ${fmtQ(unitGTQ)} c/u\n`;
+    msg += `Cantidad: ${p.qty}\n`;
+    msg += `Total producto: *${fmtQ(subtotal)}*\n\n`;
+} else {
+    msg += `Total producto: *${fmtQ(subtotal)}*\n\n`;
+}
   });
 
   msg += '━━━━━━━━━━━━━━━\n';
-  msg += `*TOTAL: ${fmtQ(totalProducts)}*`;
+  msg += `*TOTAL GENERAL: ${fmtQ(totalGeneral)}*`;
 
   return msg;
 }
