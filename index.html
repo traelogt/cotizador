@@ -367,6 +367,7 @@ const SETTINGS_KEY = 'cotizador_shein_settings_v1';
 const HISTORY_KEY = 'cotizador_shein_history_v1';
 
 let orderHistory = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+let editingHistoryId = null;
 let products = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
 let editingId = null;
 
@@ -767,9 +768,23 @@ function buildWhatsAppMessage(order = null){
 }
 
 function saveOrderToHistory(order){
-  orderHistory.unshift(order);
+  if(editingHistoryId){
+    const index = orderHistory.findIndex(item => item.id === editingHistoryId);
+
+    if(index !== -1){
+      order.id = editingHistoryId;
+      orderHistory[index] = order;
+    } else {
+      orderHistory.unshift(order);
+    }
+  } else {
+    orderHistory.unshift(order);
+  }
+
   if(orderHistory.length > 100) orderHistory = orderHistory.slice(0, 100);
+
   localStorage.setItem(HISTORY_KEY, JSON.stringify(orderHistory));
+  editingHistoryId = null;
   renderHistory();
 }
 
@@ -790,12 +805,63 @@ function sendWhatsApp(){
   const order = calculateOrderSnapshot();
   saveOrderToHistory(order);
   openWhatsAppMessage(buildWhatsAppMessage(order), order.phone);
+
+  // Limpiar la cotización actual después de enviarla
+  products = [];
+  editingId = null;
+  persist();
+  render();
+
+  document.getElementById('pName').value = '';
+  document.getElementById('pLink').value = '';
+  document.getElementById('pPrice').value = '';
+  document.getElementById('pQty').value = 1;
+  document.getElementById('pasteBox').value = '';
+  document.getElementById('parseResult').style.display = 'none';
+  document.getElementById('waPhone').value = '';
+
+  const addButton = document.querySelector('button[onclick="addProduct()"]');
+  if(addButton) addButton.textContent = 'Agregar a la cotización';
 }
 
 function resendOrder(id){
   const order = orderHistory.find(item => item.id === id);
   if(!order) return;
   openWhatsAppMessage(buildWhatsAppMessage(order), order.phone);
+}
+
+function editHistoryOrder(id){
+  const order = orderHistory.find(item => item.id === id);
+  if(!order) return;
+
+  editingHistoryId = id;
+  editingId = null;
+
+  products = order.products.map((p, index)=>({
+    id: Date.now() + index,
+    name: p.name,
+    link: p.link || '',
+    price: p.price,
+    currency: p.currency,
+    qty: p.qty,
+    store: p.store || ''
+  }));
+
+  document.getElementById('rateUSD').value = order.settings.rateUSD;
+  document.getElementById('rateMXN').value = order.settings.rateMXN;
+  document.getElementById('markup').value = order.settings.markup;
+  document.getElementById('shipping').value = order.settings.shipping;
+  document.getElementById('shipPerUnit').checked = order.settings.shipPerUnit;
+  document.getElementById('waPhone').value = order.phone || '';
+
+  updateEffRates();
+  persist();
+  render();
+
+  const addButton = document.querySelector('button[onclick="addProduct()"]');
+  if(addButton) addButton.textContent = 'Agregar a la cotización';
+
+  window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
 function removeHistoryOrder(id){
@@ -857,6 +923,7 @@ function renderHistory(){
       <div class="history-products">${productSummary}</div>
 
       <div class="history-actions">
+        <button class="btn-secondary" onclick="editHistoryOrder(${order.id})">✏️ Editar pedido</button>
         <button class="btn-primary" onclick="resendOrder(${order.id})">📤 Reenviar por WhatsApp</button>
         <button class="btn-danger" onclick="removeHistoryOrder(${order.id})">✕ Eliminar</button>
       </div>
@@ -865,9 +932,38 @@ function renderHistory(){
   });
 }
 
-document.getElementById('pasteBox').addEventListener('input', ()=>{
-  document.getElementById('pName').value = '';
-  document.getElementById('pLink').value = '';
+document.getElementById('pasteBox').addEventListener('input', function(){
+  const raw = this.value.trim();
+
+  if(!raw){
+    document.getElementById('pName').value = '';
+    document.getElementById('pLink').value = '';
+    document.getElementById('parseResult').style.display = 'none';
+    return;
+  }
+
+  const linkMatch = raw.match(/https?:\/\/\S+/);
+  const link = linkMatch ? linkMatch[0] : '';
+
+  const lines = raw.split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  let name = '';
+
+  for(const line of lines){
+    if(/^https?:\/\//i.test(line)) continue;
+    if(/he descubierto|echa un vistazo|check out this|mira lo que encontré/i.test(line)) continue;
+    name = line.replace(/https?:\/\/\S+/g, '').trim();
+    if(name) break;
+  }
+
+  if(!name && link){
+    name = nameFromUrlSlug(link);
+  }
+
+  document.getElementById('pName').value = name;
+  document.getElementById('pLink').value = link;
   document.getElementById('parseResult').style.display = 'none';
 });
 
