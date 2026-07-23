@@ -743,10 +743,48 @@ function sendWhatsApp(){
   window.open(url, '_blank', 'noopener');
 }
 
-document.getElementById('pasteBox').addEventListener('input', ()=>{
-  document.getElementById('pName').value = '';
-  document.getElementById('pLink').value = '';
-  document.getElementById('parseResult').style.display = 'none';
+document.getElementById('pasteBox').addEventListener('input', function () {
+
+    const raw = this.value.trim();
+
+    // Limpiar si no hay texto
+    if (!raw) {
+        document.getElementById('pName').value = '';
+        document.getElementById('pLink').value = '';
+        document.getElementById('parseResult').style.display = 'none';
+        return;
+    }
+
+    // Buscar enlace
+    const linkMatch = raw.match(/https?:\/\/\S+/);
+    const link = linkMatch ? linkMatch[0] : '';
+
+    // Eliminar el enlace del texto para obtener únicamente el nombre
+    let name = raw.replace(/https?:\/\/\S+/g, '');
+
+    // Eliminar líneas promocionales comunes
+    name = name
+        .replace(/he descubierto.*$/gim, '')
+        .replace(/echa un vistazo.*$/gim, '')
+        .replace(/check out this.*$/gim, '')
+        .replace(/mira lo que encontré.*$/gim, '')
+        .trim();
+
+    // Dejar solo la primera línea con contenido
+    name = name
+        .split('\n')
+        .map(x => x.trim())
+        .find(x => x.length > 0) || '';
+
+    // Si solo hay un link, intentar obtener el nombre desde la URL
+    if (!name && link) {
+        name = nameFromUrlSlug(link);
+    }
+
+    document.getElementById('pName').value = name;
+    document.getElementById('pLink').value = link;
+
+    document.getElementById('parseResult').style.display = 'none';
 });
 
 // init
