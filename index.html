@@ -185,14 +185,17 @@
   }
 
 
-  .history-list{display:flex;flex-direction:column;gap:12px;}
-  .history-item{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px;}
-  .history-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;}
-  .history-title{font-weight:700;}
-  .history-meta{color:var(--muted);font-size:0.76rem;margin-top:4px;line-height:1.5;}
-  .history-total{color:var(--accent2);font-size:1.05rem;font-weight:700;white-space:nowrap;}
-  .history-products{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);font-size:0.8rem;color:var(--muted);line-height:1.6;}
-  .history-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;flex-wrap:wrap;}
+  .history-list{display:flex;flex-direction:column;gap:8px;}
+  .history-item{background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;}
+  .history-head{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;}
+  .history-title{font-weight:700;font-size:0.86rem;}
+  .history-meta{color:var(--muted);font-size:0.72rem;margin-top:2px;line-height:1.35;}
+  .history-total{color:var(--accent2);font-size:1rem;font-weight:700;white-space:nowrap;}
+  .history-summary{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .history-products{display:none;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:0.76rem;color:var(--muted);line-height:1.5;}
+  .history-products.open{display:block;}
+  .history-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .history-actions button{padding:6px 9px;font-size:0.74rem;}
 
   ::placeholder{color:#5c6273;}
 
@@ -879,6 +882,15 @@ function clearHistory(){
   renderHistory();
 }
 
+function toggleHistoryDetails(id){
+  const details = document.getElementById(`history-details-${id}`);
+  const button = document.getElementById(`history-toggle-${id}`);
+  if(!details || !button) return;
+
+  const isOpen = details.classList.toggle('open');
+  button.textContent = isOpen ? '▲ Ocultar' : '▼ Detalles';
+}
+
 function renderHistory(){
   const list = document.getElementById('historyList');
   const empty = document.getElementById('historyEmpty');
@@ -908,24 +920,29 @@ function renderHistory(){
     item.innerHTML = `
       <div class="history-head">
         <div>
-          <div class="history-title">Pedido #${order.id}</div>
+          <div class="history-title">Pedido · ${dateText}</div>
           <div class="history-meta">
-            ${dateText}<br>
-            ${productCount} unidad${productCount === 1 ? '' : 'es'} ·
-            Margen: Q${Number(order.settings.markup).toFixed(2)} ·
-            Tax: Q${Number(order.settings.shipping).toFixed(2)} ${taxMode}
-            ${order.phone ? `<br>WhatsApp: ${escapeHtml(order.phone)}` : ''}
+            ${productCount} unidad${productCount === 1 ? '' : 'es'}
+            ${order.phone ? ` · ${escapeHtml(order.phone)}` : ''}
           </div>
         </div>
-        <div class="history-total">${fmtQ(order.total)}</div>
+
+        <div class="history-summary">
+          <div class="history-total">${fmtQ(order.total)}</div>
+          <button class="btn-ghost" id="history-toggle-${order.id}" onclick="toggleHistoryDetails(${order.id})">▼ Detalles</button>
+        </div>
       </div>
 
-      <div class="history-products">${productSummary}</div>
+      <div class="history-products" id="history-details-${order.id}">
+        ${productSummary}<br>
+        Margen: Q${Number(order.settings.markup).toFixed(2)} ·
+        Tax: Q${Number(order.settings.shipping).toFixed(2)} ${taxMode}
+      </div>
 
       <div class="history-actions">
-        <button class="btn-secondary" onclick="editHistoryOrder(${order.id})">✏️ Editar pedido</button>
-        <button class="btn-primary" onclick="resendOrder(${order.id})">📤 Reenviar por WhatsApp</button>
-        <button class="btn-danger" onclick="removeHistoryOrder(${order.id})">✕ Eliminar</button>
+        <button class="btn-secondary" onclick="editHistoryOrder(${order.id})">✏️ Editar</button>
+        <button class="btn-primary" onclick="resendOrder(${order.id})">📤 Reenviar</button>
+        <button class="btn-danger" onclick="removeHistoryOrder(${order.id})">✕</button>
       </div>
     `;
     list.appendChild(item);
