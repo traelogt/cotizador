@@ -184,6 +184,16 @@
     line-height:1.4;
   }
 
+
+  .history-list{display:flex;flex-direction:column;gap:12px;}
+  .history-item{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px;}
+  .history-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;}
+  .history-title{font-weight:700;}
+  .history-meta{color:var(--muted);font-size:0.76rem;margin-top:4px;line-height:1.5;}
+  .history-total{color:var(--accent2);font-size:1.05rem;font-weight:700;white-space:nowrap;}
+  .history-products{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);font-size:0.8rem;color:var(--muted);line-height:1.6;}
+  .history-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;flex-wrap:wrap;}
+
   ::placeholder{color:#5c6273;}
 
   @media (max-width:520px){
@@ -292,6 +302,17 @@
     <p class="hint">Si dejás el número vacío, WhatsApp te va a pedir que elijás el contacto o grupo al que enviarlo.</p>
   </div>
 
+
+  <!-- HISTORIAL DE PEDIDOS -->
+  <div class="card">
+    <h2>🕘 Historial de pedidos enviados</h2>
+    <div id="historyList" class="history-list"></div>
+    <div class="empty" id="historyEmpty">Todavía no has enviado pedidos por WhatsApp.</div>
+    <div class="footer-actions">
+      <button class="btn-danger" id="clearHistoryBtn" onclick="clearHistory()" style="display:none;">🗑 Borrar historial</button>
+    </div>
+  </div>
+
   <p class="hint" style="text-align:center;">
     Nota: por restricciones de los navegadores (CORS), esta página no puede leer el nombre/precio directamente
     desde shein.com, temu.com, aliexpress.com, amazon.com ni alibaba.com. El nombre se extrae del texto que
@@ -343,7 +364,9 @@
 <script>
 const STORAGE_KEY = 'cotizador_shein_products_v1';
 const SETTINGS_KEY = 'cotizador_shein_settings_v1';
+const HISTORY_KEY = 'cotizador_shein_history_v1';
 
+let orderHistory = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
 let products = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
 let editingId = null;
 
@@ -690,37 +713,51 @@ function escapeHtml(str){
   return div.innerHTML;
 }
 
-function buildWhatsAppMessage(){
+function calculateOrderSnapshot(){
   const s = getSettings();
 
-  let totalGeneral = 0;
-  let msg = '🧾 *Cotización de productos*\n\n';
-
-  products.forEach((p, idx)=>{
+  const snapshotProducts = products.map(p=>{
     const rate = effRateFor(p.currency);
     const unitGTQ = p.price * rate;
+    const tax = s.shipPerUnit ? s.shipping * p.qty : s.shipping;
+    const subtotal = (unitGTQ * p.qty) + tax;
 
-    // Tax igual que en la tabla
-    const shipCost = s.shipPerUnit ? s.shipping * p.qty : s.shipping;
+    return {...p, rate, unitGTQ, tax, subtotal};
+  });
 
-    // Subtotal igual que el mostrado en la cotización
-    const subtotal = (unitGTQ * p.qty) + shipCost;
-
-    totalGeneral += subtotal;
-
-    msg += `*${idx + 1}. ${p.name}*${p.store ? ` (${p.store})` : ''}\n`;
-
-    if(p.link){
-      msg += `🔗 ${p.link}\n`;
-    }
-
-    if (p.qty > 1) {
-    msg += `Precio: ${fmtQ(unitGTQ)} c/u\n`;
-    msg += `Cantidad: ${p.qty}\n`;
-    msg += `Total producto: *${fmtQ(subtotal)}*\n\n`;
-} else {
-    msg += `Total producto: *${fmtQ(subtotal)}*\n\n`;
+  return {
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
+    phone: document.getElementById('waPhone').value.trim(),
+    settings: {
+      rateUSD: s.rateUSD,
+      rateMXN: s.rateMXN,
+      markup: s.markup,
+      shipping: s.shipping,
+      shipPerUnit: s.shipPerUnit
+    },
+    products: snapshotProducts,
+    total: snapshotProducts.reduce((sum, p)=> sum + p.subtotal, 0)
+  };
 }
+
+function buildWhatsAppMessage(order = null){
+  const orderProducts = order ? order.products : calculateOrderSnapshot().products;
+  const totalGeneral = orderProducts.reduce((sum, p)=> sum + p.subtotal, 0);
+
+  let msg = '🧾 *Cotización de productos*\n\n';
+
+  orderProducts.forEach((p, idx)=>{
+    msg += `*${idx + 1}. ${p.name}*${p.store ? ` (${p.store})` : ''}\n`;
+    if(p.link) msg += `🔗 ${p.link}\n`;
+
+    if(p.qty > 1){
+      msg += `Precio: ${fmtQ(p.unitGTQ)} c/u\n`;
+      msg += `Cantidad: ${p.qty}\n`;
+      msg += `Total producto: *${fmtQ(p.subtotal)}*\n\n`;
+    } else {
+      msg += `Total producto: *${fmtQ(p.subtotal)}*\n\n`;
+    }
   });
 
   msg += '━━━━━━━━━━━━━━━\n';
@@ -729,67 +766,115 @@ function buildWhatsAppMessage(){
   return msg;
 }
 
-function sendWhatsApp(){
-  if(products.length === 0){
-    alert('Todavía no hay productos en la cotización.');
-    return;
-  }
-  const msg = buildWhatsAppMessage();
-  const phoneRaw = document.getElementById('waPhone').value.trim();
-  const phone = phoneRaw.replace(/\D/g, '');
+function saveOrderToHistory(order){
+  orderHistory.unshift(order);
+  if(orderHistory.length > 100) orderHistory = orderHistory.slice(0, 100);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(orderHistory));
+  renderHistory();
+}
+
+function openWhatsAppMessage(msg, phoneRaw = ''){
+  const phone = String(phoneRaw || '').replace(/\D/g, '');
   const url = phone
     ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
     : `https://wa.me/?text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank', 'noopener');
 }
 
-document.getElementById('pasteBox').addEventListener('input', function () {
+function sendWhatsApp(){
+  if(products.length === 0){
+    alert('Todavía no hay productos en la cotización.');
+    return;
+  }
 
-    const raw = this.value.trim();
+  const order = calculateOrderSnapshot();
+  saveOrderToHistory(order);
+  openWhatsAppMessage(buildWhatsAppMessage(order), order.phone);
+}
 
-    // Limpiar si no hay texto
-    if (!raw) {
-        document.getElementById('pName').value = '';
-        document.getElementById('pLink').value = '';
-        document.getElementById('parseResult').style.display = 'none';
-        return;
-    }
+function resendOrder(id){
+  const order = orderHistory.find(item => item.id === id);
+  if(!order) return;
+  openWhatsAppMessage(buildWhatsAppMessage(order), order.phone);
+}
 
-    // Buscar enlace
-    const linkMatch = raw.match(/https?:\/\/\S+/);
-    const link = linkMatch ? linkMatch[0] : '';
+function removeHistoryOrder(id){
+  if(!confirm('¿Eliminar este pedido del historial?')) return;
+  orderHistory = orderHistory.filter(item => item.id !== id);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(orderHistory));
+  renderHistory();
+}
 
-    // Eliminar el enlace del texto para obtener únicamente el nombre
-    let name = raw.replace(/https?:\/\/\S+/g, '');
+function clearHistory(){
+  if(orderHistory.length === 0) return;
+  if(!confirm('¿Borrar todo el historial de pedidos enviados?')) return;
+  orderHistory = [];
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(orderHistory));
+  renderHistory();
+}
 
-    // Eliminar líneas promocionales comunes
-    name = name
-        .replace(/he descubierto.*$/gim, '')
-        .replace(/echa un vistazo.*$/gim, '')
-        .replace(/check out this.*$/gim, '')
-        .replace(/mira lo que encontré.*$/gim, '')
-        .trim();
+function renderHistory(){
+  const list = document.getElementById('historyList');
+  const empty = document.getElementById('historyEmpty');
+  const clearBtn = document.getElementById('clearHistoryBtn');
 
-    // Dejar solo la primera línea con contenido
-    name = name
-        .split('\n')
-        .map(x => x.trim())
-        .find(x => x.length > 0) || '';
+  list.innerHTML = '';
 
-    // Si solo hay un link, intentar obtener el nombre desde la URL
-    if (!name && link) {
-        name = nameFromUrlSlug(link);
-    }
+  if(orderHistory.length === 0){
+    empty.style.display = 'block';
+    clearBtn.style.display = 'none';
+    return;
+  }
 
-    document.getElementById('pName').value = name;
-    document.getElementById('pLink').value = link;
+  empty.style.display = 'none';
+  clearBtn.style.display = 'inline-block';
 
-    document.getElementById('parseResult').style.display = 'none';
+  orderHistory.forEach(order=>{
+    const dateText = new Date(order.createdAt).toLocaleString('es-GT');
+    const productCount = order.products.reduce((sum, p)=> sum + p.qty, 0);
+    const taxMode = order.settings.shipPerUnit ? 'por unidad' : 'por producto';
+    const productSummary = order.products.map(p =>
+      `${escapeHtml(p.name)} × ${p.qty} — ${fmtQ(p.subtotal)}`
+    ).join('<br>');
+
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.innerHTML = `
+      <div class="history-head">
+        <div>
+          <div class="history-title">Pedido #${order.id}</div>
+          <div class="history-meta">
+            ${dateText}<br>
+            ${productCount} unidad${productCount === 1 ? '' : 'es'} ·
+            Margen: Q${Number(order.settings.markup).toFixed(2)} ·
+            Tax: Q${Number(order.settings.shipping).toFixed(2)} ${taxMode}
+            ${order.phone ? `<br>WhatsApp: ${escapeHtml(order.phone)}` : ''}
+          </div>
+        </div>
+        <div class="history-total">${fmtQ(order.total)}</div>
+      </div>
+
+      <div class="history-products">${productSummary}</div>
+
+      <div class="history-actions">
+        <button class="btn-primary" onclick="resendOrder(${order.id})">📤 Reenviar por WhatsApp</button>
+        <button class="btn-danger" onclick="removeHistoryOrder(${order.id})">✕ Eliminar</button>
+      </div>
+    `;
+    list.appendChild(item);
+  });
+}
+
+document.getElementById('pasteBox').addEventListener('input', ()=>{
+  document.getElementById('pName').value = '';
+  document.getElementById('pLink').value = '';
+  document.getElementById('parseResult').style.display = 'none';
 });
 
 // init
 loadSettings();
 render();
+renderHistory();
 fetchLiveRates();
 </script>
 </body>
